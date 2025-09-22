@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light dark;
+}
+
+html {
+  min-height: 100%;
+}
+
+body {
+  @apply bg-bgc-light text-txt-light dark:bg-bgc-dark dark:text-txt-dark;
+}
+
+.focus-ring {
+  @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-bgc-dark;
+}
+
+.container-responsive {
+  @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+}
+
+.card-surface {
+  @apply rounded-2xl border shadow-sm p-4 md:p-6 bg-surface-light border-brd-light dark:bg-surface-dark dark:border-brd-dark shadow-card;
+}
+
+.badge-pill {
+  @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border;
+}
+
+.input-base {
+  @apply block w-full rounded-lg border px-3 py-2 bg-white/90 dark:bg-slate-900/60 border-brd-light dark:border-brd-dark placeholder-slate-400 dark:placeholder-slate-500 text-sm;
+}
+
+.btn-base {
+  @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed;
+}
+
+.sidebar-width {
+  width: 260px;
+}
+
+.sidebar-width-collapsed {
+  width: 72px;
+}
+
+.shimmer {
+  background: linear-gradient(90deg, rgba(203,213,225,0.2) 25%, rgba(203,213,225,0.35) 37%, rgba(203,213,225,0.2) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: 0 0; }
+}
