@@ -1,0 +1,531 @@
+# Aurexus Bio API Type Definitions (YAML port of TypeScript src/types/api.ts)
+
+Id:
+  type: integer
+UUID:
+  type: string
+Timestamp:
+  type: string # ISO 8601
+Stage:
+  type: string
+  enum: [design, legal, budget, running, results, ip]
+JobStatus:
+  type: string
+  enum: [queued, running, succeeded, failed]
+Currency:
+  type: string
+ProviderLabel:
+  type: string
+  enum: [OpenAI, Claude, None]
+LoginRequest:
+  type: object
+  required: [email, password]
+  properties:
+    email: { type: string }
+    password: { type: string }
+LoginResponse:
+  type: object
+  required: [accessToken, user]
+  properties:
+    accessToken: { type: string }
+    tokenType: { type: string }
+    user:
+      type: object
+      required: [id, email, role]
+      properties:
+        id: { $ref: "#/Id" }
+        email: { type: string }
+        orgId: { $ref: "#/Id" }
+        role:
+          type: string
+          enum: [owner, pi, researcher, viewer]
+SignupRequest:
+  type: object
+  required: [email, password, orgName]
+  properties:
+    email: { type: string }
+    password: { type: string }
+    orgName: { type: string }
+Org:
+  type: object
+  required: [id, name, plan, createdAt]
+  properties:
+    id: { $ref: "#/Id" }
+    name: { type: string }
+    plan: { type: string }
+    createdAt: { $ref: "#/Timestamp" }
+Project:
+  type: object
+  required: [id, orgId, name, stage, createdAt]
+  properties:
+    id: { $ref: "#/Id" }
+    orgId: { $ref: "#/Id" }
+    name: { type: string }
+    stage: { $ref: "#/Stage" }
+    createdAt: { $ref: "#/Timestamp" }
+CreateProjectRequest:
+  type: object
+  required: [orgId, name]
+  properties:
+    orgId: { $ref: "#/Id" }
+    name: { type: string }
+ProtocolStep:
+  type: object
+  required: [step]
+  properties:
+    step: { type: string }
+    purpose: { type: string }
+    inputs: { type: object }
+    outputs: { type: object }
+    params: { type: object }
+Protocol:
+  type: object
+  required: [id, projectId, title, sourceType, createdAt]
+  properties:
+    id: { $ref: "#/Id" }
+    projectId: { $ref: "#/Id" }
+    title: { type: string }
+    sourceType:
+      type: string
+      enum: [idea, upload]
+    stepsJson:
+      type: array
+      items: { $ref: "#/ProtocolStep" }
+    fileUri: { type: string }
+    createdAt: { $ref: "#/Timestamp" }
+CreateProtocolRequest:
+  type: object
+  required: [projectId, title, sourceType]
+  properties:
+    projectId: { $ref: "#/Id" }
+    title: { type: string }
+    sourceType:
+      type: string
+      enum: [idea, upload]
+    stepsJson:
+      type: array
+      items: { $ref: "#/ProtocolStep" }
+    fileUri: { type: string }
+DesignPlanRequest:
+  type: object
+  required: [idea]
+  properties:
+    idea: { type: string }
+    constraints: { type: object }
+    provider: { $ref: "#/ProviderLabel" }
+DesignPlanResponse:
+  type: object
+  required: [title, stepsJson, estCostBands]
+  properties:
+    title: { type: string }
+    stepsJson:
+      type: array
+      items: { $ref: "#/ProtocolStep" }
+    risks:
+      type: array
+      items: { type: string }
+    estCostBands:
+      type: object
+      required: [solo, pooled]
+      properties:
+        solo: { type: number }
+        pooled: { type: number }
+PresignRequest:
+  type: object
+  required: [key, contentType]
+  properties:
+    key: { type: string }
+    contentType: { type: string }
+PresignResponse:
+  type: object
+  required: [url, key]
+  properties:
+    url: { type: string }
+    key: { type: string }
+SearchRequest:
+  type: object
+  required: [query]
+  properties:
+    query: { type: string }
+    limit: { type: integer }
+SearchHit:
+  type: object
+  required: [id, title, sourceType, score]
+  properties:
+    id: { $ref: "#/Id" }
+    title: { type: string }
+    sourceType:
+      type: string
+      enum: [idea, upload]
+    snippet: { type: string }
+    score: { type: number }
+SearchResponse:
+  type: object
+  required: [hits]
+  properties:
+    hits:
+      type: array
+      items: { $ref: "#/SearchHit" }
+Pool:
+  type: object
+  required: [id, name, assayType, closesAt, discountPct, capacity, enrolledCount, status]
+  properties:
+    id: { $ref: "#/Id" }
+    name: { type: string }
+    assayType: { type: string }
+    closesAt: { $ref: "#/Timestamp" }
+    discountPct: { type: number }
+    capacity: { type: number }
+    enrolledCount: { type: number }
+    status:
+      type: string
+      enum: [open, closed]
+Quote:
+  type: object
+  required: [id, projectId, poolId, priceSolo, pricePool, currency, createdAt]
+  properties:
+    id: { $ref: "#/Id" }
+    projectId: { $ref: "#/Id" }
+    poolId: { $ref: "#/Id" }
+    priceSolo: { type: number }
+    pricePool: { type: number }
+    currency: { $ref: "#/Currency" }
+    chosen:
+      type: string
+      enum: [solo, pool, null]
+    createdAt: { $ref: "#/Timestamp" }
+CreateQuoteRequest:
+  type: object
+  required: [projectId, poolId, chosen]
+  properties:
+    projectId: { $ref: "#/Id" }
+    poolId: { $ref: "#/Id" }
+    chosen:
+      type: string
+      enum: [solo, pool]
+EstimateRequest:
+  type: object
+  properties:
+    samples: { type: number }
+EstimateResponse:
+  type: object
+  required: [priceSolo, pricePool, savingsPct, closesAt]
+  properties:
+    priceSolo: { type: number }
+    pricePool: { type: number }
+    savingsPct: { type: number }
+    closesAt: { $ref: "#/Timestamp" }
+Signature:
+  type: object
+  required: [id, projectId, ndaOk, msaOk, ipMode, dataUseOk, signedAt]
+  properties:
+    id: { $ref: "#/Id" }
+    projectId: { $ref: "#/Id" }
+    ndaOk: { type: boolean }
+    msaOk: { type: boolean }
+    ipMode:
+      type: string
+      enum: [user_owns, shared, platform_carry]
+    dataUseOk: { type: boolean }
+    signedAt: { $ref: "#/Timestamp" }
+Escrow:
+  type: object
+  required: [id, projectId, amountCents, status, updatedAt]
+  properties:
+    id: { $ref: "#/Id" }
+    projectId: { $ref: "#/Id" }
+    amountCents: { type: number }
+    status:
+      type: string
+      enum: [pending, funded, released]
+    txnRef: { type: string }
+    updatedAt: { $ref: "#/Timestamp" }
+EscrowTopupRequest:
+  type: object
+  required: [amountCents]
+  properties:
+    amountCents: { type: number }
+Lab:
+  type: object
+  required: [id, name, region, biosafety, assays, capacity, slaDays, reliability, status]
+  properties:
+    id: { $ref: "#/Id" }
+    name: { type: string }
+    region: { type: string }
+    biosafety:
+      type: array
+      items:
+        type: string
+        enum: [BSL1, BSL2, BSL3]
+    assays:
+      type: array
+      items: { type: string }
+    capacity: { type: object }
+    slaDays: { type: object }
+    reliability: { type: number }
+    status:
+      type: string
+      enum: [active, paused]
+Task:
+  type: object
+  required: [id, projectId, protocolId, assay, inputs, constraints]
+  properties:
+    id: { $ref: "#/Id" }
+    projectId: { $ref: "#/Id" }
+    protocolId: { $ref: "#/Id" }
+    assay: { type: string }
+    inputs: { type: object }
+    constraints: { type: object }
+DecomposeRequest:
+  type: object
+  required: [projectId, protocolId]
+  properties:
+    projectId: { $ref: "#/Id" }
+    protocolId: { $ref: "#/Id" }
+MatchingFindRequest:
+  type: object
+  required: [tasks]
+  properties:
+    tasks:
+      type: array
+      items:
+        type: object
+        required: [taskId, assay]
+        properties:
+          taskId: { $ref: "#/Id" }
+          assay: { type: string }
+Match:
+  type: object
+  required: [labId, fitScore, estimatedPriceCents, tatDays, reasons]
+  properties:
+    labId: { $ref: "#/Id" }
+    fitScore: { type: number }
+    estimatedPriceCents: { type: number }
+    tatDays: { type: number }
+    reasons:
+      type: array
+      items: { type: string }
+Rfp:
+  type: object
+  required: [id, projectId, createdAt, deadline]
+  properties:
+    id: { $ref: "#/Id" }
+    projectId: { $ref: "#/Id" }
+    createdAt: { $ref: "#/Timestamp" }
+    deadline: { $ref: "#/Timestamp" }
+CreateRfpRequest:
+  type: object
+  required: [projectId, taskIds, labIds, deadline]
+  properties:
+    projectId: { $ref: "#/Id" }
+    taskIds:
+      type: array
+      items: { $ref: "#/Id" }
+    labIds:
+      type: array
+      items: { $ref: "#/Id" }
+    deadline: { $ref: "#/Timestamp" }
+Offer:
+  type: object
+  required: [rfpId, labId, taskId, priceCents, tatDays, qcLevel, validUntil]
+  properties:
+    rfpId: { $ref: "#/Id" }
+    labId: { $ref: "#/Id" }
+    taskId: { $ref: "#/Id" }
+    priceCents: { type: number }
+    tatDays: { type: number }
+    qcLevel:
+      type: string
+      enum: [standard, enhanced]
+    validUntil: { $ref: "#/Timestamp" }
+    exceptions:
+      type: array
+      items: { type: string }
+    notes: { type: string }
+CounterRequest:
+  type: object
+  required: [priceCents, tatDays]
+  properties:
+    priceCents: { type: number }
+    tatDays: { type: number }
+NegotiationPreviewRequest:
+  type: object
+  required: [priceCents, tatDays]
+  properties:
+    priceCents: { type: number }
+    tatDays: { type: number }
+NegotiationPreviewResponse:
+  type: object
+  required: [withinPolicy, notes]
+  properties:
+    withinPolicy: { type: boolean }
+    notes: { type: string }
+    suggestedCounter:
+      type: object
+      properties:
+        priceCents: { type: number }
+        tatDays: { type: number }
+AwardApproveRequest:
+  type: object
+  required: [rfpId, offerIndex]
+  properties:
+    rfpId: { $ref: "#/Id" }
+    offerIndex: { type: number }
+AwardApproveResponse:
+  type: object
+  required: [poNumber, nextSteps]
+  properties:
+    poNumber: { type: string }
+    nextSteps: { type: string }
+Job:
+  type: object
+  required: [id, projectId, protocolId, status, progressPct]
+  properties:
+    id: { $ref: "#/Id" }
+    projectId: { $ref: "#/Id" }
+    protocolId: { $ref: "#/Id" }
+    status: { $ref: "#/JobStatus" }
+    progressPct: { type: number }
+    simulated: { type: boolean }
+    startedAt: { $ref: "#/Timestamp" }
+    finishedAt: { $ref: "#/Timestamp" }
+LaunchJobRequest:
+  type: object
+  required: [projectId, protocolId]
+  properties:
+    projectId: { $ref: "#/Id" }
+    protocolId: { $ref: "#/Id" }
+    simulated: { type: boolean }
+Milestone:
+  type: object
+  required: [name, at]
+  properties:
+    name:
+      type: string
+      enum: [accepted, prep, in_progress, qc, delivered]
+    at: { $ref: "#/Timestamp" }
+Artifact:
+  type: object
+  required: [id, jobId, kind, uri, createdAt]
+  properties:
+    id: { $ref: "#/Id" }
+    jobId: { $ref: "#/Id" }
+    kind:
+      type: string
+      enum: [csv, image, fastq, pdf, md]
+    uri: { type: string }
+    bytes: { type: number }
+    checksum: { type: string }
+    createdAt: { $ref: "#/Timestamp" }
+QcMetric:
+  type: object
+  required: [id, jobId, name, valueNum]
+  properties:
+    id: { $ref: "#/Id" }
+    jobId: { $ref: "#/Id" }
+    name: { type: string }
+    valueNum: { type: number }
+    unit: { type: string }
+    recordedAt: { $ref: "#/Timestamp" }
+ResultsSummary:
+  type: object
+  required: [jobs, kpis]
+  properties:
+    jobs: { type: number }
+    kpis:
+      type: object
+      properties:
+        successRate: { type: number }
+        avgEffectSize: { type: number }
+        qcPassRate: { type: number }
+InsightsResponse:
+  type: object
+  required: [recommendations, anomalies, benchmarks, disclaimer]
+  properties:
+    recommendations:
+      type: array
+      items:
+        type: object
+        required: [text]
+        properties:
+          text: { type: string }
+          confidence: { type: number }
+    anomalies:
+      type: array
+      items:
+        type: object
+        required: [text]
+        properties:
+          text: { type: string }
+    benchmarks:
+      type: array
+      items:
+        type: object
+        required: [text]
+        properties:
+          text: { type: string }
+    disclaimer: { type: string }
+Shipment:
+  type: object
+  required: [id, projectId, toLabId, contents, status]
+  properties:
+    id: { $ref: "#/Id" }
+    projectId: { $ref: "#/Id" }
+    fromAddr: { type: string }
+    toLabId: { $ref: "#/Id" }
+    contents: { type: object }
+    carrier: { type: string }
+    tracking: { type: string }
+    status:
+      type: string
+      enum: [label_created, in_transit, received]
+    receivedAt: { $ref: "#/Timestamp" }
+CreateShipmentRequest:
+  type: object
+  required: [projectId, toLabId, contents]
+  properties:
+    projectId: { $ref: "#/Id" }
+    toLabId: { $ref: "#/Id" }
+    contents: { type: object }
+    fromAddr: { type: string }
+    carrier: { type: string }
+MarkReceivedRequest:
+  type: object
+  required: [shipmentId]
+  properties:
+    shipmentId: { $ref: "#/Id" }
+ComplianceChecklist:
+  type: object
+  required: [projectId, biosafetyOk, exportOk, materialOriginOk, permitsOk, dataOk]
+  properties:
+    projectId: { $ref: "#/Id" }
+    biosafetyOk: { type: boolean }
+    exportOk: { type: boolean }
+    materialOriginOk: { type: boolean }
+    permitsOk: { type: boolean }
+    dataOk: { type: boolean }
+    notes: { type: string }
+Listing:
+  type: object
+  required: [id, projectId, type, headline, termsSummary, status]
+  properties:
+    id: { $ref: "#/Id" }
+    projectId: { $ref: "#/Id" }
+    type:
+      type: string
+      enum: [patent, data_pkg, license, protocol]
+    headline: { type: string }
+    termsSummary: { type: string }
+    status:
+      type: string
+      enum: [active, pending, sold]
+CreateListingRequest:
+  type: object
+  required: [projectId, type, headline, termsSummary]
+  properties:
+    projectId: { $ref: "#/Id" }
+    type:
+      type: string
+      enum: [patent, data_pkg, license, protocol]
+    headline: { type: string }
+    termsSummary: { type: string }
