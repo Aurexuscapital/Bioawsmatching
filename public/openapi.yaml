@@ -1,0 +1,1320 @@
+openapi: 3.1.0
+info:
+  title: Aurexus Bio API
+  version: "1.0.0"
+  description: >
+    AWS-for-Biology backend for Plan → Run → Results → IP. Supports simulated and lab runs,
+    lab matching & RFP, logistics/compliance, marketplace, semantic search, and AI endpoints.
+
+servers:
+  - url: http://localhost:8000
+    description: Local dev
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # ===== Core types =====
+    Id:
+      type: integer
+      format: int64
+      minimum: 1
+
+    UUID:
+      type: string
+      format: uuid
+
+    Timestamp:
+      type: string
+      format: date-time
+
+    Stage:
+      type: string
+      enum: [design, legal, budget, running, results, ip]
+
+    JobStatus:
+      type: string
+      enum: [queued, running, succeeded, failed]
+
+    Currency:
+      type: string
+      example: AUD
+
+    ProviderLabel:
+      type: string
+      enum: [OpenAI, Claude, None]
+
+    # ===== Auth =====
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 6 }
+    LoginResponse:
+      type: object
+      required: [accessToken]
+      properties:
+        accessToken: { type: string }
+        tokenType: { type: string, example: Bearer }
+        user:
+          type: object
+          required: [id, email]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            email: { type: string, format: email }
+            orgId: { $ref: '#/components/schemas/Id' }
+            role:
+              type: string
+              enum: [owner, pi, researcher, viewer]
+
+    SignupRequest:
+      type: object
+      required: [email, password, orgName]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 6 }
+        orgName: { type: string, minLength: 2 }
+
+    # ===== Orgs & Projects =====
+    Org:
+      type: object
+      required: [id, name, plan, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        name: { type: string }
+        plan: { type: string, example: starter }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+
+    Project:
+      type: object
+      required: [id, orgId, name, stage, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        orgId: { $ref: '#/components/schemas/Id' }
+        name: { type: string }
+        stage: { $ref: '#/components/schemas/Stage' }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+
+    CreateProjectRequest:
+      type: object
+      required: [orgId, name]
+      properties:
+        orgId: { $ref: '#/components/schemas/Id' }
+        name: { type: string, minLength: 2 }
+
+    # ===== Protocols & Design =====
+    Protocol:
+      type: object
+      required: [id, projectId, title, sourceType, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        projectId: { $ref: '#/components/schemas/Id' }
+        title: { type: string }
+        sourceType:
+          type: string
+          enum: [idea, upload]
+        stepsJson:
+          type: array
+          items:
+            type: object
+            required: [step]
+            properties:
+              step: { type: string }
+              purpose: { type: string }
+              inputs: { type: object, additionalProperties: true }
+              outputs: { type: object, additionalProperties: true }
+              params: { type: object, additionalProperties: true }
+        fileUri: { type: string, nullable: true }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+
+    CreateProtocolRequest:
+      type: object
+      required: [projectId, title, sourceType]
+      properties:
+        projectId: { $ref: '#/components/schemas/Id' }
+        title: { type: string }
+        sourceType:
+          type: string
+          enum: [idea, upload]
+        stepsJson:
+          type: array
+          items: { $ref: '#/components/schemas/Protocol/properties/stepsJson/items' }
+        fileUri: { type: string, nullable: true }
+
+    DesignPlanRequest:
+      type: object
+      required: [idea]
+      properties:
+        idea: { type: string }
+        constraints:
+          type: object
+          additionalProperties: true
+        provider:
+          $ref: '#/components/schemas/ProviderLabel'
+    DesignPlanResponse:
+      type: object
+      required: [title, stepsJson, estCostBands]
+      properties:
+        title: { type: string }
+        stepsJson:
+          type: array
+          items: { $ref: '#/components/schemas/Protocol/properties/stepsJson/items' }
+        risks:
+          type: array
+          items: { type: string }
+        estCostBands:
+          type: object
+          required: [solo, pooled]
+          properties:
+            solo: { type: number }
+            pooled: { type: number }
+
+    # ===== Uploads (presign) =====
+    PresignRequest:
+      type: object
+      required: [key, contentType]
+      properties:
+        key: { type: string }
+        contentType: { type: string }
+    PresignResponse:
+      type: object
+      required: [url, key]
+      properties:
+        url: { type: string }
+        key: { type: string }
+
+    # ===== Search =====
+    SearchRequest:
+      type: object
+      required: [query]
+      properties:
+        query: { type: string }
+        limit: { type: integer, default: 10, minimum: 1, maximum: 50 }
+    SearchHit:
+      type: object
+      required: [id, title, sourceType, score]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        title: { type: string }
+        sourceType: { type: string, enum: [idea, upload] }
+        snippet: { type: string, nullable: true }
+        score: { type: number }
+    SearchResponse:
+      type: object
+      required: [hits]
+      properties:
+        hits:
+          type: array
+          items: { $ref: '#/components/schemas/SearchHit' }
+
+    # ===== Pools / Quotes / Legal / Escrow =====
+    Pool:
+      type: object
+      required: [id, name, assayType, closesAt, discountPct, capacity, enrolledCount, status]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        name: { type: string }
+        assayType: { type: string }
+        closesAt: { $ref: '#/components/schemas/Timestamp' }
+        discountPct: { type: integer }
+        capacity: { type: integer }
+        enrolledCount: { type: integer }
+        status: { type: string, enum: [open, closed] }
+
+    Quote:
+      type: object
+      required: [id, projectId, poolId, priceSolo, pricePool, currency, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        projectId: { $ref: '#/components/schemas/Id' }
+        poolId: { $ref: '#/components/schemas/Id' }
+        priceSolo: { type: integer, description: "cents" }
+        pricePool: { type: integer, description: "cents" }
+        currency: { $ref: '#/components/schemas/Currency' }
+        chosen:
+          type: string
+          nullable: true
+          enum: [solo, pool, null]
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+
+    CreateQuoteRequest:
+      type: object
+      required: [projectId, poolId, chosen]
+      properties:
+        projectId: { $ref: '#/components/schemas/Id' }
+        poolId: { $ref: '#/components/schemas/Id' }
+        chosen: { type: string, enum: [solo, pool] }
+
+    EstimateRequest:
+      type: object
+      properties:
+        samples: { type: integer, minimum: 1 }
+    EstimateResponse:
+      type: object
+      required: [priceSolo, pricePool, savingsPct, closesAt]
+      properties:
+        priceSolo: { type: integer }
+        pricePool: { type: integer }
+        savingsPct: { type: integer }
+        closesAt: { $ref: '#/components/schemas/Timestamp' }
+
+    Signature:
+      type: object
+      required: [id, projectId, ndaOk, msaOk, ipMode, dataUseOk, signedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        projectId: { $ref: '#/components/schemas/Id' }
+        ndaOk: { type: boolean }
+        msaOk: { type: boolean }
+        ipMode: { type: string, enum: [user_owns, shared, platform_carry] }
+        dataUseOk: { type: boolean }
+        signedAt: { $ref: '#/components/schemas/Timestamp' }
+
+    Escrow:
+      type: object
+      required: [id, projectId, amountCents, status, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        projectId: { $ref: '#/components/schemas/Id' }
+        amountCents: { type: integer }
+        status: { type: string, enum: [pending, funded, released] }
+        txnRef: { type: string, nullable: true }
+        updatedAt: { $ref: '#/components/schemas/Timestamp' }
+    EscrowTopupRequest:
+      type: object
+      required: [amountCents]
+      properties:
+        amountCents: { type: integer, minimum: 100 }
+
+    # ===== Labs / Matching / Tasks / RFP / Offers =====
+    Lab:
+      type: object
+      required: [id, name, region, biosafety, assays, capacity, slaDays, reliability, status]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        name: { type: string }
+        region: { type: string }
+        biosafety:
+          type: array
+          items: { type: string, enum: [BSL1, BSL2, BSL3] }
+        assays:
+          type: array
+          items: { type: string }
+        capacity:
+          type: object
+          additionalProperties: { type: integer }
+        slaDays:
+          type: object
+          additionalProperties: { type: integer }
+        reliability: { type: number, minimum: 0, maximum: 1 }
+        status: { type: string, enum: [active, paused] }
+
+    Task:
+      type: object
+      required: [id, projectId, protocolId, assay, inputs, constraints]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        projectId: { $ref: '#/components/schemas/Id' }
+        protocolId: { $ref: '#/components/schemas/Id' }
+        assay: { type: string }
+        inputs: { type: object, additionalProperties: true }
+        constraints: { type: object, additionalProperties: true }
+
+    DecomposeRequest:
+      type: object
+      required: [projectId, protocolId]
+      properties:
+        projectId: { $ref: '#/components/schemas/Id' }
+        protocolId: { $ref: '#/components/schemas/Id' }
+
+    MatchingFindRequest:
+      type: object
+      required: [tasks]
+      properties:
+        tasks:
+          type: array
+          items:
+            type: object
+            required: [taskId, assay]
+            properties:
+              taskId: { $ref: '#/components/schemas/Id' }
+              assay: { type: string }
+    Match:
+      type: object
+      required: [labId, fitScore, estimatedPriceCents, tatDays, reasons]
+      properties:
+        labId: { $ref: '#/components/schemas/Id' }
+        fitScore: { type: number }
+        estimatedPriceCents: { type: integer }
+        tatDays: { type: integer }
+        reasons:
+          type: array
+          items: { type: string }
+
+    Rfp:
+      type: object
+      required: [id, projectId, createdAt, deadline]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        projectId: { $ref: '#/components/schemas/Id' }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+        deadline: { $ref: '#/components/schemas/Timestamp' }
+    CreateRfpRequest:
+      type: object
+      required: [projectId, taskIds, labIds, deadline]
+      properties:
+        projectId: { $ref: '#/components/schemas/Id' }
+        taskIds:
+          type: array
+          items: { $ref: '#/components/schemas/Id' }
+        labIds:
+          type: array
+          items: { $ref: '#/components/schemas/Id' }
+        deadline: { $ref: '#/components/schemas/Timestamp' }
+
+    Offer:
+      type: object
+      required: [rfpId, labId, taskId, priceCents, tatDays, qcLevel, validUntil]
+      properties:
+        rfpId: { $ref: '#/components/schemas/Id' }
+        labId: { $ref: '#/components/schemas/Id' }
+        taskId: { $ref: '#/components/schemas/Id' }
+        priceCents: { type: integer }
+        tatDays: { type: integer }
+        qcLevel: { type: string, enum: [standard, enhanced] }
+        validUntil: { $ref: '#/components/schemas/Timestamp' }
+        exceptions:
+          type: array
+          items: { type: string }
+        notes: { type: string }
+
+    CounterRequest:
+      type: object
+      required: [priceCents, tatDays]
+      properties:
+        priceCents: { type: integer }
+        tatDays: { type: integer }
+
+    NegotiationPreviewRequest:
+      type: object
+      required: [priceCents, tatDays]
+      properties:
+        priceCents: { type: integer }
+        tatDays: { type: integer }
+    NegotiationPreviewResponse:
+      type: object
+      required: [withinPolicy, notes]
+      properties:
+        withinPolicy: { type: boolean }
+        notes: { type: string }
+        suggestedCounter:
+          type: object
+          properties:
+            priceCents: { type: integer }
+            tatDays: { type: integer }
+
+    AwardApproveRequest:
+      type: object
+      required: [rfpId, offerIndex]
+      properties:
+        rfpId: { $ref: '#/components/schemas/Id' }
+        offerIndex: { type: integer, minimum: 0 }
+    AwardApproveResponse:
+      type: object
+      required: [poNumber, nextSteps]
+      properties:
+        poNumber: { type: string }
+        nextSteps: { type: string }
+
+    # ===== Runs / Jobs / Milestones / Results / Insights =====
+    Job:
+      type: object
+      required: [id, projectId, protocolId, status, progressPct]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        projectId: { $ref: '#/components/schemas/Id' }
+        protocolId: { $ref: '#/components/schemas/Id' }
+        status: { $ref: '#/components/schemas/JobStatus' }
+        progressPct: { type: integer, minimum: 0, maximum: 100 }
+        simulated: { type: boolean, default: false }
+        startedAt: { $ref: '#/components/schemas/Timestamp' }
+        finishedAt: { $ref: '#/components/schemas/Timestamp' }
+
+    LaunchJobRequest:
+      type: object
+      required: [projectId, protocolId]
+      properties:
+        projectId: { $ref: '#/components/schemas/Id' }
+        protocolId: { $ref: '#/components/schemas/Id' }
+        simulated: { type: boolean, default: false }
+
+    Milestone:
+      type: object
+      required: [name, at]
+      properties:
+        name:
+          type: string
+          enum: [accepted, prep, in_progress, qc, delivered]
+        at: { $ref: '#/components/schemas/Timestamp' }
+
+    Artifact:
+      type: object
+      required: [id, jobId, kind, uri, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        jobId: { $ref: '#/components/schemas/Id' }
+        kind: { type: string, enum: [csv, image, fastq, pdf, md] }
+        uri: { type: string }
+        bytes: { type: integer, nullable: true }
+        checksum: { type: string, nullable: true }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+
+    QcMetric:
+      type: object
+      required: [id, jobId, name, valueNum]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        jobId: { $ref: '#/components/schemas/Id' }
+        name: { type: string }
+        valueNum: { type: number }
+        unit: { type: string, nullable: true }
+        recordedAt: { $ref: '#/components/schemas/Timestamp' }
+
+    ResultsSummary:
+      type: object
+      required: [jobs, kpis]
+      properties:
+        jobs: { type: integer }
+        kpis:
+          type: object
+          properties:
+            successRate: { type: number }
+            avgEffectSize: { type: number }
+            qcPassRate: { type: number }
+
+    InsightsResponse:
+      type: object
+      required: [recommendations, anomalies, benchmarks, disclaimer]
+      properties:
+        recommendations:
+          type: array
+          items:
+            type: object
+            required: [text]
+            properties:
+              text: { type: string }
+              confidence: { type: number }
+        anomalies:
+          type: array
+          items:
+            type: object
+            required: [text]
+            properties:
+              text: { type: string }
+        benchmarks:
+          type: array
+          items:
+            type: object
+            required: [text]
+            properties:
+              text: { type: string }
+        disclaimer: { type: string }
+
+    # ===== Logistics / Compliance =====
+    Shipment:
+      type: object
+      required: [id, projectId, toLabId, contents, status]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        projectId: { $ref: '#/components/schemas/Id' }
+        fromAddr: { type: string, nullable: true }
+        toLabId: { $ref: '#/components/schemas/Id' }
+        contents: { type: object, additionalProperties: true }
+        carrier: { type: string, nullable: true }
+        tracking: { type: string, nullable: true }
+        status: { type: string, enum: [label_created, in_transit, received] }
+        receivedAt: { $ref: '#/components/schemas/Timestamp' }
+
+    CreateShipmentRequest:
+      type: object
+      required: [projectId, toLabId, contents]
+      properties:
+        projectId: { $ref: '#/components/schemas/Id' }
+        toLabId: { $ref: '#/components/schemas/Id' }
+        contents: { type: object, additionalProperties: true }
+        fromAddr: { type: string }
+        carrier: { type: string }
+
+    MarkReceivedRequest:
+      type: object
+      required: [shipmentId]
+      properties:
+        shipmentId: { $ref: '#/components/schemas/Id' }
+
+    ComplianceChecklist:
+      type: object
+      required: [projectId, biosafetyOk, exportOk, materialOriginOk, permitsOk, dataOk]
+      properties:
+        projectId: { $ref: '#/components/schemas/Id' }
+        biosafetyOk: { type: boolean }
+        exportOk: { type: boolean }
+        materialOriginOk: { type: boolean }
+        permitsOk: { type: boolean }
+        dataOk: { type: boolean }
+        notes: { type: string, nullable: true }
+
+    # ===== Marketplace =====
+    Listing:
+      type: object
+      required: [id, projectId, type, headline, termsSummary, status]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        projectId: { $ref: '#/components/schemas/Id' }
+        type: { type: string, enum: [patent, data_pkg, license, protocol] }
+        headline: { type: string }
+        termsSummary: { type: string }
+        status: { type: string, enum: [active, pending, sold] }
+
+    CreateListingRequest:
+      type: object
+      required: [projectId, type, headline, termsSummary]
+      properties:
+        projectId: { $ref: '#/components/schemas/Id' }
+        type: { type: string, enum: [patent, data_pkg, license, protocol] }
+        headline: { type: string }
+        termsSummary: { type: string }
+
+  # ===== END SCHEMAS =====
+
+paths:
+  # ---- Auth ----
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with email/password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Auth success
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+  /auth/signup:
+    post:
+      tags: [Auth]
+      summary: Create account + org
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignupRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+
+  # ---- Projects ----
+  /projects:
+    get:
+      tags: [Projects]
+      summary: List projects
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Project' }
+    post:
+      tags: [Projects]
+      summary: Create project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateProjectRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+
+  # ---- Protocols & Design ----
+  /protocols:
+    get:
+      tags: [Protocols]
+      summary: List protocols for a project
+      parameters:
+        - in: query
+          name: projectId
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Protocol' }
+    post:
+      tags: [Protocols]
+      summary: Create protocol (idea or upload)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateProtocolRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Protocol' }
+
+  /design/plan:
+    post:
+      tags: [Design]
+      summary: AI protocol generation from idea
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DesignPlanRequest' }
+      responses:
+        '200':
+          description: Draft created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesignPlanResponse' }
+
+  /uploads/presign:
+    post:
+      tags: [Uploads]
+      summary: Presign URL for protocol or artifact upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PresignRequest' }
+      responses:
+        '200':
+          description: URL created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PresignResponse' }
+
+  # ---- Search ----
+  /search:
+    post:
+      tags: [Search]
+      summary: Semantic search over protocols
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SearchRequest' }
+      responses:
+        '200':
+          description: Hits
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchResponse' }
+
+  # ---- Pools / Pricing ----
+  /pools:
+    get:
+      tags: [Pools]
+      summary: List available pools
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Pool' }
+  /pools/estimate:
+    post:
+      tags: [Pools]
+      summary: Estimate solo vs pooled pricing
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EstimateRequest' }
+      responses:
+        '200':
+          description: Estimate returned
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EstimateResponse' }
+
+  /quotes:
+    post:
+      tags: [Quotes]
+      summary: Create a quote selection (solo vs pool)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateQuoteRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quote' }
+
+  # ---- Legal & Escrow ----
+  /signatures:
+    get:
+      tags: [Legal]
+      summary: Fetch signatures for a project
+      parameters:
+        - in: query
+          name: projectId
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Signature' }
+    post:
+      tags: [Legal]
+      summary: Sign legal documents for a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Signature' }
+      responses:
+        '201':
+          description: Signed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Signature' }
+
+  /escrow:
+    get:
+      tags: [Escrow]
+      summary: Get escrow status for a project
+      parameters:
+        - in: query
+          name: projectId
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Escrow' }
+
+  /escrow/topup:
+    post:
+      tags: [Escrow]
+      summary: Top up escrow for a project
+      parameters:
+        - in: query
+          name: projectId
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EscrowTopupRequest' }
+      responses:
+        '200':
+          description: Funded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Escrow' }
+
+  # ---- Labs / Matching / Tasks / RFP ----
+  /labs:
+    get:
+      tags: [Labs]
+      summary: List labs and capabilities
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Lab' }
+
+  /matching/decompose:
+    post:
+      tags: [Matching]
+      summary: Derive execution tasks from a protocol
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DecomposeRequest' }
+      responses:
+        '200':
+          description: Tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Task' }
+
+  /matching/find:
+    post:
+      tags: [Matching]
+      summary: Find lab matches for tasks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MatchingFindRequest' }
+      responses:
+        '200':
+          description: Matches
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Match' }
+
+  /rfp/create:
+    post:
+      tags: [RFP]
+      summary: Create RFP for tasks & labs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateRfpRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Rfp' }
+
+  /rfp:
+    get:
+      tags: [RFP]
+      summary: List RFPs by project
+      parameters:
+        - in: query
+          name: projectId
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Rfp' }
+
+  /rfp/{id}:
+    get:
+      tags: [RFP]
+      summary: Get offers for an RFP
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Offers
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Offer' }
+
+  /rfp/{id}/counter:
+    post:
+      tags: [RFP]
+      summary: Counter an offer on an RFP (policy rails enforced)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+        - in: query
+          name: offerIndex
+          required: true
+          schema: { type: integer, minimum: 0 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CounterRequest' }
+      responses:
+        '200':
+          description: Updated offer
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Offer' }
+
+  /negotiation/preview:
+    post:
+      tags: [Negotiation]
+      summary: Check if a counter is within policy rails
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NegotiationPreviewRequest' }
+      responses:
+        '200':
+          description: Preview
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NegotiationPreviewResponse' }
+
+  /awards/approve:
+    post:
+      tags: [Awards]
+      summary: Approve and award an offer (human gate)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AwardApproveRequest' }
+      responses:
+        '200':
+          description: Awarded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AwardApproveResponse' }
+
+  # ---- Preflight & Runs ----
+  /runs/preflight:
+    get:
+      tags: [Runs]
+      summary: Readiness checklist before launching a run
+      parameters:
+        - in: query
+          name: projectId
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Checklist
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [legalOk, escrowOk, tasksOk, shippingOk, complianceOk]
+                properties:
+                  legalOk: { type: boolean }
+                  escrowOk: { type: boolean }
+                  tasksOk: { type: boolean }
+                  shippingOk: { type: boolean }
+                  complianceOk: { type: boolean }
+
+  /jobs:
+    get:
+      tags: [Runs]
+      summary: List jobs by project
+      parameters:
+        - in: query
+          name: projectId
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Job' }
+
+  /jobs/launch:
+    post:
+      tags: [Runs]
+      summary: Launch a job (simulated or lab)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LaunchJobRequest' }
+      responses:
+        '201':
+          description: Launched
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+
+  /runs/{jobId}/milestones:
+    get:
+      tags: [Runs]
+      summary: Milestones for a job
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Milestones
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Milestone' }
+
+  # ---- Results & Insights ----
+  /results:
+    get:
+      tags: [Results]
+      summary: List artifacts & QC for a project
+      parameters:
+        - in: query
+          name: projectId
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  artifacts:
+                    type: array
+                    items: { $ref: '#/components/schemas/Artifact' }
+                  qc:
+                    type: array
+                    items: { $ref: '#/components/schemas/QcMetric' }
+
+  /results/summary:
+    get:
+      tags: [Results]
+      summary: Aggregated KPIs for a project
+      parameters:
+        - in: query
+          name: projectId
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: KPIs
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultsSummary' }
+
+  /insights:
+    get:
+      tags: [Insights]
+      summary: AI recommendations and anomalies for a project
+      parameters:
+        - in: query
+          name: projectId
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+        - in: query
+          name: provider
+          required: false
+          schema: { $ref: '#/components/schemas/ProviderLabel' }
+      responses:
+        '200':
+          description: Insights
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InsightsResponse' }
+
+  /ip/provisional:
+    post:
+      tags: [IP]
+      summary: Draft a provisional patent from protocols + results
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [projectId]
+              properties:
+                projectId: { $ref: '#/components/schemas/Id' }
+                provider:
+                  $ref: '#/components/schemas/ProviderLabel'
+      responses:
+        '201':
+          description: Draft created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [downloadUrl, artifactId]
+                properties:
+                  downloadUrl: { type: string }
+                  artifactId: { $ref: '#/components/schemas/Id' }
+
+  # ---- Logistics ----
+  /shipments:
+    get:
+      tags: [Logistics]
+      summary: List shipments for a project
+      parameters:
+        - in: query
+          name: projectId
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Shipment' }
+    post:
+      tags: [Logistics]
+      summary: Create shipment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateShipmentRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shipment' }
+
+  /shipments/mark-received:
+    post:
+      tags: [Logistics]
+      summary: Mark shipment received
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MarkReceivedRequest' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shipment' }
+
+  # ---- Compliance ----
+  /compliance:
+    get:
+      tags: [Compliance]
+      summary: Get compliance checklist for a project
+      parameters:
+        - in: query
+          name: projectId
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Checklist
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  legalOk: { type: boolean }
+                  escrowOk: { type: boolean }
+                  tasksOk: { type: boolean }
+                  shippingOk: { type: boolean }
+                  complianceOk: { type: boolean }
+  /compliance/request-review:
+    post:
+      tags: [Compliance]
+      summary: Request compliance review
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [projectId]
+              properties:
+                projectId: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Review requested
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projectId: { $ref: '#/components/schemas/Id' }
+                  biosafetyOk: { type: boolean }
+                  exportOk: { type: boolean }
+                  materialOriginOk: { type: boolean }
+                  permitsOk: { type: boolean }
+                  dataOk: { type: boolean }
+                  notes: { type: string, nullable: true }
+
+  # ---- Marketplace ----
+  /marketplace:
+    get:
+      tags: [Marketplace]
+      summary: List marketplace assets
+      responses:
+        '200':
+          description: Listings
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Listing' }
+  /marketplace/list:
+    post:
+      tags: [Marketplace]
+      summary: Create a marketplace listing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateListingRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Listing' }
+
+  # ---- Misc / Health ----
+  /health:
+    get:
+      tags: [System]
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
