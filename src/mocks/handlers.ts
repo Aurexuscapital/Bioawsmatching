@@ -1,13 +1,24 @@
 import { http, HttpResponse } from 'msw';
 import YAML from 'yaml';
+import { getMockMode, MockMode } from './mockMode';
 
-// Lazy-load and cache the OpenAPI spec from /openapi.yaml (served from public/)
+// Lazy-load and cache the OpenAPI spec; in browser we fetch from /openapi.yaml, in Node we read from filesystem
 let specPromise: Promise<any> | null = null;
 async function loadSpec(): Promise<any> {
   if (!specPromise) {
-    specPromise = fetch('/openapi.yaml')
-      .then((r) => r.text())
-      .then((t) => YAML.parse(t));
+    if (typeof window === 'undefined') {
+      specPromise = (async () => {
+        const { readFile } = await import('node:fs/promises');
+        const { resolve } = await import('node:path');
+        const p = resolve(process.cwd(), 'public', 'openapi.yaml');
+        const content = await readFile(p, 'utf8');
+        return YAML.parse(content);
+      })();
+    } else {
+      specPromise = fetch('/openapi.yaml')
+        .then((r) => r.text())
+        .then((t) => YAML.parse(t));
+    }
   }
   return specPromise;
 }
@@ -116,13 +127,38 @@ async function resolveOperation(spec: any, method: string, pathname: string): Pr
   return null;
 }
 
+function parseLocalMode(request: Request): MockMode | null {
+  try {
+    const url = new URL(request.url);
+    const m = (url.searchParams.get('mock') as MockMode | null) || null;
+    if (m) return m;
+  } catch {}
+  const hdr = (request.headers as any).get?.('x-mock-mode') as MockMode | null;
+  return hdr || null;
+}
+
 export const handlers = [
   http.all('*', async ({ request }) => {
     try {
       const spec = await loadSpec();
       const url = new URL(request.url);
+
+      const localMode = parseLocalMode(request);
+      const mode = localMode || getMockMode();
+
+      if (mode.startsWith('delay:')) {
+        const ms = parseInt(mode.split(':')[1] || '0', 10);
+        await new Promise((res) => setTimeout(res, ms));
+      }
+
       const found = await resolveOperation(spec, request.method, url.pathname);
       if (!found) return HttpResponse.passthrough();
+
+      if (mode.startsWith('error:')) {
+        const status = parseInt(mode.split(':')[1] || '500', 10);
+        return HttpResponse.json({ error: { code: status, message: 'Mocked error' } }, { status });
+      }
+
       const picked = pickSuccessResponse(found.op);
       if (!picked) return HttpResponse.passthrough();
       const body = mockFromSchema(picked.schema, spec);
