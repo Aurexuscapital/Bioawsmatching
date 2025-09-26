@@ -3,7 +3,7 @@ import { Toaster } from 'react-hot-toast';
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import { ThemeProvider } from '@/hooks/useTheme';
-import MswProvider from '@/mocks/MswProvider';
+import MswProvider from '../mocks/MswProvider';
 
 const inter = Inter({ subsets: ['latin'] });
 
